@@ -1,0 +1,104 @@
+:root {
+    --dark-green: #10692c;
+    --bg-orange: #b17b14; 
+    --active-orange: #c5b533;
+}
+
+html, body {
+    height: 100%;
+}
+
+body {
+    padding-top: 5%;
+    background-color: var(--bg-orange);
+}
+
+.diagram-container {
+    width: 90%;
+    height: 80%;
+    margin: 0 5%;
+    background-color: #fff;
+    position: relative;
+}
+
+.diagram-container.connecting-boxes {
+    cursor: crosshair;
+}
+
+.diagram {
+    width: 100%; 
+    height: 100%; 
+}
+
+.connector {
+    stroke: var(--dark-green);
+    stroke-width: 2px;
+}
+
+.active.connector {
+    stroke: var(--active-orange);
+}
+
+.box {
+    overflow: visible;
+}
+
+.box .frame {
+    border: 2px solid var(--dark-green);
+    cursor: move;
+    display: block;
+    padding: 7px;
+    box-sizing: border-box;
+    width: 200px;
+    min-height: 135px;
+    font-family: monospace;
+    background-color: #fff;
+}
+
+.connecting-boxes .active .frame {
+    border: 2px solid var(--active-orange);
+}
+
+.connecting-boxes .box .frame:hover {
+    border: 2px solid var(--active-orange);
+    cursor: crosshair;
+}
+
+.box code {
+    display: block;
+    padding: 4px;
+    cursor: text;
+}
+
+.connecting-boxes .box code {
+    cursor: crosshair;
+}
+
+.menu {
+    margin: 0;
+    padding: 0;
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    list-style-type: none;
+}
+
+.menu button {
+    cursor: pointer;
+    display: block;
+    background-color: var(--dark-green);
+    color: #fff;
+    border: none;
+    font-size: 30px;
+    text-align: center;
+    width: 39px;
+    height: 39px;
+    padding: 0 0 3px;
+    line-height: 0;
+    font-family: monospace;
+    margin-bottom: 10px;
+}
+
+.menu button:hover {
+    background-color: var(--active-orange);
+}

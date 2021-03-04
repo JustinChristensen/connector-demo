@@ -1,0 +1,15 @@
+{
+  "name": "connector-demo",
+  "version": "1.0.0",
+  "main": "main.js",
+  "author": "Justin Christensen <wroathe@gmail.com>",
+  "license": "MIT",
+  "scripts": {
+    "start": "browser-sync .",
+    "lint": "eslint main.js"
+  },
+  "devDependencies": {
+    "browser-sync": "^2.26.14",
+    "eslint": "^7.21.0"
+  }
+}
