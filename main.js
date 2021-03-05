@@ -200,6 +200,45 @@
             finishDragging(s);
         };
 
+        const connectBoxes = (s, box) => {
+            const boxFrame = box.firstElementChild;
+            set(s.connectingLine.x2, box.x.baseVal.value + boxFrame.offsetWidth / 2);
+            set(s.connectingLine.y2, box.y.baseVal.value + boxFrame.offsetHeight / 2);
+
+            s.connectingLine._nodes = [s.firstBox, box];
+
+            if (hasEdge(box, s.connectingLine)) {
+                stopConnecting(s);
+                return;
+            }
+
+            s.firstBox._edges.push(s.connectingLine);
+            box._edges.push(s.connectingLine);
+
+            storeLine(s, s.connectingLine);
+            storeBox(s, s.firstBox);
+            storeBox(s, box);
+            s.commit();
+
+            finishConnecting(s);
+        };
+
+        const startConnecting = (s, box) => {
+            const boxFrame = box.firstElementChild;
+
+            s.firstBox = box;
+            s.connectingLine = addLine(s.diagram, 
+                box.x.baseVal.value + boxFrame.offsetWidth / 2,
+                box.y.baseVal.value + boxFrame.offsetHeight / 2,
+                s.ptrX, 
+                s.ptrY
+            );
+
+            s.connectingLine.classList.add('active');
+            box.classList.add('active');
+            s.frame = requestAnimationFrame(moveLineFrom(s, s.ptrX, s.ptrY));
+        }
+
         const setP = e => {
             const { left, top } = e._state.diagram.getBoundingClientRect();
             e._state.ptrX = e.clientX - left; 
@@ -276,41 +315,8 @@
                 return;
             }
 
-            const boxFrame = box.firstElementChild;
-
-            if (s.firstBox) {
-                set(s.connectingLine.x2, box.x.baseVal.value + boxFrame.offsetWidth / 2);
-                set(s.connectingLine.y2, box.y.baseVal.value + boxFrame.offsetHeight / 2);
-
-                s.connectingLine._nodes = [s.firstBox, box];
-
-                if (hasEdge(box, s.connectingLine)) {
-                    stopConnecting(s);
-                    return;
-                }
-
-                s.firstBox._edges.push(s.connectingLine);
-                box._edges.push(s.connectingLine);
-
-                storeLine(s, s.connectingLine);
-                storeBox(s, s.firstBox);
-                storeBox(s, box);
-                s.commit();
-
-                finishConnecting(s);
-            } else {
-                s.firstBox = box;
-                s.connectingLine = addLine(s.diagram, 
-                    box.x.baseVal.value + boxFrame.offsetWidth / 2,
-                    box.y.baseVal.value + boxFrame.offsetHeight / 2,
-                    s.ptrX, 
-                    s.ptrY
-                );
-
-                s.connectingLine.classList.add('active');
-                box.classList.add('active');
-                s.frame = requestAnimationFrame(moveLineFrom(s, s.ptrX, s.ptrY));
-            }
+            if (s.firstBox) connectBoxes(s, box);
+            else startConnecting(s, box);
         })));
 
         diagram.addEventListener('focusout', withState(e => {
