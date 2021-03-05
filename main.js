@@ -123,11 +123,12 @@
                 xmlns: 'http://www.w3.org/1999/xhtml'
             }));
 
-            const code = boxFrame.appendChild(createEl('code', { 
+            const contents = boxFrame.appendChild(createEl('pre', { 
+                'class': 'contents',
                 contenteditable: '' 
             }));
 
-            code.textContent = text;
+            contents.innerText = text;
 
             box._edges = [];
 
@@ -150,14 +151,14 @@
         const storeBox = (s, box) => {
             if (box._id === undefined) box._id = s.store.uid++;
 
-            const code = box.querySelector('code');
+            const contents = box.querySelector('pre');
 
             s.store.graph[box._id] = {
                 type: 'box',
                 id: box._id,
                 x: box.x.baseVal.value,
                 y: box.y.baseVal.value,
-                text: code.textContent
+                text: contents.innerText
             };
         };
 
