@@ -1,8 +1,15 @@
 (function () {
+    const config = {
+        placeholder: 'Stuff and things',
+        storageKey: 'data'
+    };
+
     const ready = () => new Promise(resolve => {
         if (document.readyState !== 'loading') return resolve();
         document.addEventListener('DOMContentLoaded', () => resolve());
     });
+
+    const select = document.querySelector.bind(document);
 
     const createEl = (el, attrs = {}, ns = 'http://www.w3.org/1999/xhtml') => {
         el = document.createElementNS(ns, el)
@@ -17,25 +24,31 @@
         return fn(e);
     };
 
-    ready().then(() => {
-        const container = document.querySelector('.diagram-container');
-        const diagram = document.querySelector('.diagram');
-        const menu = {
-            box: document.querySelector('.add-box'),
-            line: document.querySelector('.add-line')
-        };
+    const store = JSON.parse(localStorage.getItem(config.storageKey)) || {
+        uid: 0,
+        graph: {}
+    };
 
-        const config = {
-            placeholder: 'Stuff and things'
+    const updateStore = () => localStorage.setItem(config.storageKey, JSON.stringify(store))
+
+    ready().then(() => {
+        const container = select('.diagram-container');
+        const diagram = select('.diagram');
+        const menu = {
+            box: select('.add-box'),
+            line: select('.add-line')
         };
 
         const withState = makeStateH({
+            diagram, container, menu,
             dragging: null,                 // element we're dragging
             connectingBoxes: false,         // we're connecting boxes
             frame: null,                    // animating draggable
-            ptrX: null, ptrY: null,        // position of the pointer within the diagram
+            ptrX: null, ptrY: null,         // position of the pointer within the diagram
             firstBox: null,                 // first selected box when adding lines
-            connectingLine: null            // the new line
+            connectingLine: null,           // a new line
+            store,                          // initial storage state
+            commit: updateStore             // update localStorage 
         });
 
         const stop = (fn = noop) => e => {
@@ -100,11 +113,9 @@
             s.frame = requestAnimationFrame(moveLineFrom(s, s.ptrX, s.ptrY));
         };
 
-        const addBox = s => {
+        const addBox = (diagram, x, y, text = config.placeholder) => {
             const box = createEl('foreignObject', {
-                'class': 'box',
-                x: s.ptrX, 
-                y: s.ptrY
+                'class': 'box', x, y
             }, 'http://www.w3.org/2000/svg');
 
             const boxFrame = box.appendChild(createEl('div', {
@@ -112,18 +123,59 @@
                 xmlns: 'http://www.w3.org/1999/xhtml'
             }));
 
-            const code = createEl('code', { contenteditable: '' });
-            code.textContent = config.placeholder;
-            boxFrame.appendChild(code);
+            const code = boxFrame.appendChild(createEl('code', { 
+                contenteditable: '' 
+            }));
+
+            code.textContent = text;
 
             box._edges = [];
 
             diagram.appendChild(box);
 
-            box.x.baseVal.value -= boxFrame.offsetWidth / 2;
-            box.y.baseVal.value -= boxFrame.offsetHeight / 2;
-
             return box;
+        };
+
+        const addLine = (diagram, x1, y1, x2, y2) => {
+            const line = createEl('line', {
+                x1, y1, x2, y2,
+                'class': 'connector',
+            }, 'http://www.w3.org/2000/svg');   
+
+            line._nodes = [];
+            diagram.insertBefore(line, diagram.firstChild);
+            return line;
+        };
+
+        const storeBox = (s, box) => {
+            if (box._id === undefined) box._id = s.store.uid++;
+
+            const code = box.querySelector('code');
+
+            s.store.graph[box._id] = {
+                type: 'box',
+                id: box._id,
+                x: box.x.baseVal.value,
+                y: box.y.baseVal.value,
+                text: code.textContent
+            };
+        };
+
+        const storeLine = (s, line) => {
+            if (line._id === undefined) line._id = s.store.uid++;
+
+            s.store.graph[line._id] = {
+                type: 'line',
+                id: line._id,
+                x1: line.x1.baseVal.value,
+                y1: line.y1.baseVal.value,
+                x2: line.x2.baseVal.value,
+                y2: line.y2.baseVal.value,
+                nodes: [
+                    line._nodes[0]._id,
+                    line._nodes[1]._id
+                ]
+            };
         };
 
         const startDragging = (s, el) => {
@@ -148,7 +200,7 @@
         };
 
         const setP = e => {
-            const { left, top } = diagram.getBoundingClientRect();
+            const { left, top } = e._state.diagram.getBoundingClientRect();
             e._state.ptrX = e.clientX - left; 
             e._state.ptrY = e.clientY - top;
         };
@@ -162,9 +214,34 @@
         const hasEdge = (box, line) =>
             box._edges.some(edgeEq(line));
 
+        const render = (diagram, store) => {
+            const nodes = {};
+
+            Object.values(store.graph).forEach(item => {
+                if (item.type === 'box') {
+                    const box = addBox(diagram, item.x, item.y, item.text);
+                    box._id = item.id;
+                    nodes[box._id] = box;
+                } else if (item.type == 'line') {
+                    const line = addLine(diagram, item.x1, item.y1, item.x2, item.y2);
+                    line._id = item.id;
+                    line._nodes = [
+                        nodes[item.nodes[0]],
+                        nodes[item.nodes[1]]
+                    ];
+                    line._nodes[0]._edges.push(line);
+                    line._nodes[1]._edges.push(line);
+                }
+            });
+        };
+
         menu.box.addEventListener('click', withState(stop(withStart(e => {
             setP(e);
-            startDragging(e._state, addBox(e._state));
+            const box = addBox(e._state.diagram, e._state.ptrX, e._state.ptrY)
+            const boxFrame = box.firstElementChild;
+            box.x.baseVal.value -= boxFrame.offsetWidth / 2;
+            box.y.baseVal.value -= boxFrame.offsetHeight / 2;
+            startDragging(e._state, box);
         }))));
 
         menu.line.addEventListener('click', withState(stop(withStart(e => {
@@ -181,49 +258,68 @@
         }));
 
         diagram.addEventListener('pointermove', withState(e => setP(e)));
-        diagram.addEventListener('pointerup', withState(whenDragging(e => finishDragging(e._state))));
+        diagram.addEventListener('pointerup', withState(whenDragging(e => {
+            const s = e._state;
+            storeBox(s, s.dragging);
+            s.dragging._edges.forEach(line => storeLine(s, line));
+            s.commit();
+            finishDragging(s);
+        })));
 
         diagram.addEventListener('click', withState(whenConnecting(e => {
-            const box = e.target.closest('.box');
+            const s = e._state;
 
-            if (!box || box.classList.contains('active')) {
-                stopConnecting(e._state);
+            const box = e.target.closest('.box');
+            if (!box || box === s.firstBox) {
+                stopConnecting(s);
                 return;
             }
 
-            const { firstBox, connectingLine, ptrX, ptrY } = e._state;
             const boxFrame = box.firstElementChild;
 
-            if (firstBox) {
-                set(connectingLine.x2, box.x.baseVal.value + boxFrame.offsetWidth / 2);
-                set(connectingLine.y2, box.y.baseVal.value + boxFrame.offsetHeight / 2);
+            if (s.firstBox) {
+                set(s.connectingLine.x2, box.x.baseVal.value + boxFrame.offsetWidth / 2);
+                set(s.connectingLine.y2, box.y.baseVal.value + boxFrame.offsetHeight / 2);
 
-                connectingLine._nodes = [firstBox, box];
+                s.connectingLine._nodes = [s.firstBox, box];
 
-                if (hasEdge(box, connectingLine)) {
-                    stopConnecting(e._state);
+                if (hasEdge(box, s.connectingLine)) {
+                    stopConnecting(s);
                     return;
                 }
 
-                firstBox._edges.push(connectingLine);
-                box._edges.push(connectingLine);
+                s.firstBox._edges.push(s.connectingLine);
+                box._edges.push(s.connectingLine);
 
-                finishConnecting(e._state);
+                storeLine(s, s.connectingLine);
+                storeBox(s, s.firstBox);
+                storeBox(s, box);
+                s.commit();
+
+                finishConnecting(s);
             } else {
-                e._state.firstBox = box;
-                e._state.connectingLine = createEl('line', {
-                    'class': 'connector active',
-                    x1: box.x.baseVal.value + boxFrame.offsetWidth / 2,
-                    y1: box.y.baseVal.value + boxFrame.offsetHeight / 2,
-                    x2: ptrX, 
-                    y2: ptrY
-                }, 'http://www.w3.org/2000/svg');  
+                s.firstBox = box;
+                s.connectingLine = addLine(s.diagram, 
+                    box.x.baseVal.value + boxFrame.offsetWidth / 2,
+                    box.y.baseVal.value + boxFrame.offsetHeight / 2,
+                    s.ptrX, 
+                    s.ptrY
+                );
 
+                s.connectingLine.classList.add('active');
                 box.classList.add('active');
-                diagram.insertBefore(e._state.connectingLine, diagram.firstChild);
-                e._state.frame = requestAnimationFrame(moveLineFrom(e._state, ptrX, ptrY));
+                s.frame = requestAnimationFrame(moveLineFrom(s, s.ptrX, s.ptrY));
             }
         })));
+
+        diagram.addEventListener('focusout', withState(e => {
+            const box = e.target.closest('.box');
+            if (!box || !e.target.isContentEditable) return;
+            storeBox(e._state, box);
+            e._state.commit();
+        }));
+
+        render(diagram, store);
     });
 })();
  
