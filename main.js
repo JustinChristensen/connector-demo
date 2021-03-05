@@ -19,15 +19,12 @@
 
     const noop = () => {};
 
-    const makeStateH = state => (fn = noop) => e => {
+    const makeStateH = state => (fn = noop) => (e = {}) => {
         e._state = state;
         return fn(e);
     };
 
-    const store = JSON.parse(localStorage.getItem(config.storageKey)) || {
-        uid: 0,
-        graph: {}
-    };
+    const store = JSON.parse(localStorage.getItem(config.storageKey)) || { graph: {} };
 
     const updateStore = () => localStorage.setItem(config.storageKey, JSON.stringify(store))
 
@@ -47,6 +44,7 @@
             ptrX: null, ptrY: null,         // position of the pointer within the diagram
             firstBox: null,                 // first selected box when adding lines
             connectingLine: null,           // a new line
+            uid: -1,                        // unique id
             store,                          // initial storage state
             commit: updateStore             // update localStorage 
         });
@@ -115,17 +113,19 @@
 
         const addBox = (diagram, x, y, text = config.placeholder) => {
             const box = createEl('foreignObject', {
-                'class': 'box', x, y
+                'class': 'box', x, y,
+                height: 0, width: 0
             }, 'http://www.w3.org/2000/svg');
 
             const boxFrame = box.appendChild(createEl('div', {
                 'class': 'frame',
+                'tabindex': -1,
                 xmlns: 'http://www.w3.org/1999/xhtml'
             }));
 
             const contents = boxFrame.appendChild(createEl('pre', { 
                 'class': 'contents',
-                contenteditable: '' 
+                contenteditable: ''
             }));
 
             contents.innerText = text;
@@ -148,10 +148,27 @@
             return line;
         };
 
-        const storeBox = (s, box) => {
-            if (box._id === undefined) box._id = s.store.uid++;
+        const deleteBox = (s, box) => {
+            box._edges.forEach(line => {
+                const other = line._nodes[0] === box ? 
+                    line._nodes[1] : line._nodes[0];
 
-            const contents = box.querySelector('pre');
+                other._edges.splice(other._edges.indexOf(line), 1);
+                line._nodes = null;
+                delete s.store.graph[line._id];
+                line.parentElement.removeChild(line);
+            });
+
+            box._edges = null;
+            delete s.store.graph[box._id];
+            box.parentElement.removeChild(box);
+            s.commit();
+        };
+
+        const storeBox = (s, box) => {
+            if (box._id === undefined) box._id = s.uid++;
+
+            const contents = box.querySelector('.contents');
 
             s.store.graph[box._id] = {
                 type: 'box',
@@ -163,7 +180,7 @@
         };
 
         const storeLine = (s, line) => {
-            if (line._id === undefined) line._id = s.store.uid++;
+            if (line._id === undefined) line._id = s.uid++;
 
             s.store.graph[line._id] = {
                 type: 'line',
@@ -254,16 +271,17 @@
         const hasEdge = (box, line) =>
             box._edges.some(edgeEq(line));
 
-        const render = (diagram, store) => {
+        const render = (e) => {
+            const s = e._state;
             const nodes = {};
 
-            Object.values(store.graph).forEach(item => {
+            Object.values(s.store.graph).forEach(item => {
                 if (item.type === 'box') {
-                    const box = addBox(diagram, item.x, item.y, item.text);
+                    const box = addBox(s.diagram, item.x, item.y, item.text);
                     box._id = item.id;
                     nodes[box._id] = box;
                 } else if (item.type == 'line') {
-                    const line = addLine(diagram, item.x1, item.y1, item.x2, item.y2);
+                    const line = addLine(s.diagram, item.x1, item.y1, item.x2, item.y2);
                     line._id = item.id;
                     line._nodes = [
                         nodes[item.nodes[0]],
@@ -272,7 +290,11 @@
                     line._nodes[0]._edges.push(line);
                     line._nodes[1]._edges.push(line);
                 }
+
+                s.uid = item.id;
             });
+
+            s.uid++;
         };
 
         menu.box.addEventListener('click', withState(stop(withStart(e => {
@@ -319,14 +341,29 @@
             else startConnecting(s, box);
         })));
 
-        diagram.addEventListener('focusout', withState(e => {
+        diagram.addEventListener('keyup', withState(e => {
             const box = e.target.closest('.box');
+            if (e.target.classList.contains('contents')) return;
+            if (e.key.toLowerCase() !== 'backspace') return;
+            box && deleteBox(e._state, box);
+        }));
+
+        diagram.addEventListener('focusin', e => {
+            e.stopPropagation();
+            const box = e.target.closest('.box');
+            box && box.classList.add('focus');
+        });
+
+        diagram.addEventListener('focusout', withState(e => {
+            e.stopPropagation();
+            const box = e.target.closest('.box');
+            box && box.classList.remove('focus');
             if (!box || !e.target.isContentEditable) return;
             storeBox(e._state, box);
             e._state.commit();
         }));
 
-        render(diagram, store);
+        withState(render)();
     });
 })();
  

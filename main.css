@@ -2,6 +2,7 @@
     --dark-green: #10692c;
     --bg-orange: #b17b14; 
     --active-orange: #c5b533;
+    --focus-orange: #e59700;
 }
 
 html, body {
@@ -47,12 +48,16 @@ body {
     border: 2px solid var(--dark-green);
     cursor: move;
     display: block;
-    padding: 7px;
+    padding: 8px;
     box-sizing: border-box;
-    width: 200px;
-    min-height: 135px;
+    width: 210px;
+    min-height: 145px;
     font-family: monospace;
     background-color: #fff;
+}
+
+.box.focus .frame {
+    outline: var(--focus-orange) auto 1px;
 }
 
 .connecting-boxes .active .frame {
