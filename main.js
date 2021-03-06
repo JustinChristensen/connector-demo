@@ -1,7 +1,8 @@
 (function () {
     const config = {
         placeholder: 'Stuff and things',
-        storageKey: 'data'
+        storageKey: 'data',
+        scrollRange: 800
     };
 
     const ready = () => new Promise(resolve => {
@@ -25,23 +26,24 @@
     };
 
     const store = JSON.parse(localStorage.getItem(config.storageKey)) || { graph: {} };
-
     const updateStore = () => localStorage.setItem(config.storageKey, JSON.stringify(store))
 
     ready().then(() => {
-        const container = select('.diagram-container');
         const diagram = select('.diagram');
+        const pane = select('.pane');
         const menu = {
             box: select('.add-box'),
             line: select('.add-line')
         };
-
+        
         const withState = makeStateH({
-            diagram, container, menu,
+            paneMatrix: new DOMMatrix(pane.style.transform),
+            diagram, pane, menu,
             dragging: null,                 // element we're dragging
             connectingBoxes: false,         // we're connecting boxes
             frame: null,                    // animating draggable
             ptrX: null, ptrY: null,         // position of the pointer within the diagram
+            scrollY: 0,                     // scroll y delta
             firstBox: null,                 // first selected box when adding lines
             connectingLine: null,           // a new line
             uid: -1,                        // unique id
@@ -57,7 +59,7 @@
 
         const finishConnecting = s => {
             clearFrame(s);
-            container.classList.remove('connecting-boxes');
+            s.diagram.classList.remove('connecting-boxes');
             if (s.firstBox) s.firstBox.classList.remove('active');
             if (s.connectingLine) s.connectingLine.classList.remove('active');
             s.firstBox = null;
@@ -76,13 +78,8 @@
             fn(e);
         };
 
-        const whenDragging = (fn = noop) => e => {
-            e._state.dragging && fn(e);
-        };
-
-        const whenConnecting = (fn = noop) => e => {
-            e._state.connectingBoxes && fn(e);
-        };
+        const whenConnecting = (fn = noop) => e => e._state.connectingBoxes && fn(e);
+        const whenAnimating = (fn = noop) => e => e._state.frame && fn(e);
 
         const set = (pos, x) => pos.baseVal.value = x;
         const shift = (pos, x) => pos.baseVal.value += x;
@@ -111,10 +108,10 @@
             s.frame = requestAnimationFrame(moveLineFrom(s, s.ptrX, s.ptrY));
         };
 
-        const addBox = (diagram, x, y, text = config.placeholder) => {
+        const addBox = (container, x, y, text = config.placeholder) => {
             const box = createEl('foreignObject', {
                 'class': 'box', x, y,
-                height: 0, width: 0
+                height: 1, width: 1
             }, 'http://www.w3.org/2000/svg');
 
             const boxFrame = box.appendChild(createEl('div', {
@@ -132,19 +129,19 @@
 
             box._edges = [];
 
-            diagram.appendChild(box);
+            container.appendChild(box);
 
             return box;
         };
 
-        const addLine = (diagram, x1, y1, x2, y2) => {
+        const addLine = (container, x1, y1, x2, y2) => {
             const line = createEl('line', {
                 x1, y1, x2, y2,
                 'class': 'connector',
             }, 'http://www.w3.org/2000/svg');   
 
             line._nodes = [];
-            diagram.insertBefore(line, diagram.firstChild);
+            container.insertBefore(line, container.firstChild);
             return line;
         };
 
@@ -196,10 +193,28 @@
             };
         };
 
+        const panFrom = (s, prevX, prevY) => () => {
+            s.paneMatrix.translateSelf(s.ptrX - prevX, s.ptrY - prevY);
+            s.pane.style.transform = s.paneMatrix.toString();
+            s.frame = requestAnimationFrame(panFrom(s, s.ptrX, s.ptrY));
+        };
+
+        const zoomFrom = (s, prevY) => () => {
+            const srange = config.scrollRange,
+                factor = 2 ** ((s.scrollY - prevY + srange * 2) / srange - 2);
+            s.paneMatrix.scaleSelf(factor, factor);
+            s.pane.style.transform = s.paneMatrix.toString();
+            if (s.scrollY !== prevY) s.frame = requestAnimationFrame(zoomFrom(s, s.scrollY));
+            else s.frame = null;
+        };
+
         const startDragging = (s, el) => {
             s.dragging = el;
             s.frame = requestAnimationFrame(moveBoxFrom(s, s.ptrX, s.ptrY));
         };
+
+        const startPanning = s => (s.frame = requestAnimationFrame(panFrom(s, s.ptrX, s.ptrY)));
+        const startZooming = s => (s.frame = requestAnimationFrame(zoomFrom(s, s.scrollY)));
 
         const clearFrame = s => {
             if (!s.frame) return;
@@ -244,7 +259,7 @@
             const boxFrame = box.firstElementChild;
 
             s.firstBox = box;
-            s.connectingLine = addLine(s.diagram, 
+            s.connectingLine = addLine(s.pane, 
                 box.x.baseVal.value + boxFrame.offsetWidth / 2,
                 box.y.baseVal.value + boxFrame.offsetHeight / 2,
                 s.ptrX, 
@@ -277,11 +292,11 @@
 
             Object.values(s.store.graph).forEach(item => {
                 if (item.type === 'box') {
-                    const box = addBox(s.diagram, item.x, item.y, item.text);
+                    const box = addBox(s.pane, item.x, item.y, item.text);
                     box._id = item.id;
                     nodes[box._id] = box;
                 } else if (item.type == 'line') {
-                    const line = addLine(s.diagram, item.x1, item.y1, item.x2, item.y2);
+                    const line = addLine(s.pane, item.x1, item.y1, item.x2, item.y2);
                     line._id = item.id;
                     line._nodes = [
                         nodes[item.nodes[0]],
@@ -299,7 +314,7 @@
 
         menu.box.addEventListener('click', withState(stop(withStart(e => {
             setP(e);
-            const box = addBox(e._state.diagram, e._state.ptrX, e._state.ptrY)
+            const box = addBox(e._state.pane, e._state.ptrX, e._state.ptrY)
             const boxFrame = box.firstElementChild;
             box.x.baseVal.value -= boxFrame.offsetWidth / 2;
             box.y.baseVal.value -= boxFrame.offsetHeight / 2;
@@ -307,26 +322,43 @@
         }))));
 
         menu.line.addEventListener('click', withState(stop(withStart(e => {
-            container.classList.add('connecting-boxes')
+            e._state.diagram.classList.add('connecting-boxes')
             e._state.connectingBoxes = true;
         }))));
 
         diagram.addEventListener('pointerdown', withState(e => {
-            if (e._state.connectingBoxes) e.preventDefault();
-            if (e._state.dragging || e._state.connectingBoxes) return;
+            const s = e._state;
+            if (s.connectingBoxes) e.preventDefault();
+            if (s.frame || s.connectingBoxes) return;
 
             const box = e.target.closest('.box');
-            box && startDragging(e._state, box); 
+            if (box) startDragging(s, box); 
+            else startPanning(s);
         }));
 
         diagram.addEventListener('pointermove', withState(e => setP(e)));
-        diagram.addEventListener('pointerup', withState(whenDragging(e => {
+        diagram.addEventListener('pointerup', withState(whenAnimating(e => {
             const s = e._state;
-            storeBox(s, s.dragging);
-            s.dragging._edges.forEach(line => storeLine(s, line));
-            s.commit();
-            finishDragging(s);
+
+            if (s.dragging) {
+                storeBox(s, s.dragging);
+                s.dragging._edges.forEach(line => storeLine(s, line));
+                s.commit();
+                finishDragging(s);
+            } 
+
+            clearFrame(s);
         })));
+
+        diagram.addEventListener('wheel', withState(e => {
+            const s = e._state, srange = config.scrollRange;
+            e.preventDefault();
+            s.scrollY += e.deltaY;
+            if (s.scrollY < -srange) s.scrollY = -srange;
+            else if (s.scrollY > srange) s.scrollY = srange;
+            console.log(s.scrollY);
+            if (!s.frame) startZooming(s);
+        }));
 
         diagram.addEventListener('click', withState(whenConnecting(e => {
             const s = e._state;
