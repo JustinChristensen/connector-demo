@@ -72,6 +72,14 @@
             finishConnecting(s);
         };
 
+        const setP = e => {
+            const { left, top } = e._state.diagram.getBoundingClientRect();
+            e._state.ptrX = e.clientX - left; 
+            e._state.ptrY = e.clientY - top;
+        };
+
+        const withSetP = (fn = noop) => e => (setP(e), fn(e));
+
         const withStart = (fn = noop) => e => {
             if (e._state.dragging) stopDragging(e._state);
             if (e._state.connectingBoxes) stopConnecting(e._state);
@@ -200,9 +208,11 @@
         };
 
         const zoomFrom = (s, prevY) => () => {
-            const srange = config.scrollRange,
-                factor = 2 ** ((s.scrollY - prevY + srange * 2) / srange - 2);
-            s.paneMatrix.scaleSelf(factor, factor);
+            const factor = 2 ** ((s.scrollY + config.scrollRange * 2) / config.scrollRange - 2);
+
+            s.paneMatrix.a = s.paneMatrix.d = s.paneMatrix.e = s.paneMatrix.f = 1; 
+            s.paneMatrix.scaleSelf(factor, factor, 1, s.ptrX, s.ptrY);
+
             s.pane.style.transform = s.paneMatrix.toString();
             if (s.scrollY !== prevY) s.frame = requestAnimationFrame(zoomFrom(s, s.scrollY));
             else s.frame = null;
@@ -271,12 +281,6 @@
             s.frame = requestAnimationFrame(moveLineFrom(s, s.ptrX, s.ptrY));
         }
 
-        const setP = e => {
-            const { left, top } = e._state.diagram.getBoundingClientRect();
-            e._state.ptrX = e.clientX - left; 
-            e._state.ptrY = e.clientY - top;
-        };
-
         const edgeEq = a => b => (
             a._nodes[0] === b._nodes[0] &&
             a._nodes[1] === b._nodes[1] ||
@@ -312,14 +316,13 @@
             s.uid++;
         };
 
-        menu.box.addEventListener('click', withState(stop(withStart(e => {
-            setP(e);
+        menu.box.addEventListener('click', withState(stop(withStart(withSetP(e => {
             const box = addBox(e._state.pane, e._state.ptrX, e._state.ptrY)
             const boxFrame = box.firstElementChild;
             box.x.baseVal.value -= boxFrame.offsetWidth / 2;
             box.y.baseVal.value -= boxFrame.offsetHeight / 2;
             startDragging(e._state, box);
-        }))));
+        })))));
 
         menu.line.addEventListener('click', withState(stop(withStart(e => {
             e._state.diagram.classList.add('connecting-boxes')
@@ -336,7 +339,7 @@
             else startPanning(s);
         }));
 
-        diagram.addEventListener('pointermove', withState(e => setP(e)));
+        diagram.addEventListener('pointermove', withState(setP));
         diagram.addEventListener('pointerup', withState(whenAnimating(e => {
             const s = e._state;
 
@@ -350,15 +353,14 @@
             clearFrame(s);
         })));
 
-        diagram.addEventListener('wheel', withState(e => {
+        diagram.addEventListener('wheel', withState(withSetP(e => {
             const s = e._state, srange = config.scrollRange;
             e.preventDefault();
-            s.scrollY += e.deltaY;
-            if (s.scrollY < -srange) s.scrollY = -srange;
-            else if (s.scrollY > srange) s.scrollY = srange;
-            console.log(s.scrollY);
+            s.scrollY -= e.deltaY;
+            s.scrollY = s.scrollY < -srange ? -srange : s.scrollY;
+            s.scrollY = s.scrollY > srange ? srange : s.scrollY;
             if (!s.frame) startZooming(s);
-        }));
+        })));
 
         diagram.addEventListener('click', withState(whenConnecting(e => {
             const s = e._state;
