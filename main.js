@@ -207,14 +207,15 @@
             s.frame = requestAnimationFrame(panFrom(s, s.ptrX, s.ptrY));
         };
 
-        const zoomFrom = (s, prevY) => () => {
-            const factor = 2 ** ((s.scrollY + config.scrollRange * 2) / config.scrollRange - 2);
+        const zoomFrom = (s, prevScrollY) => () => {
+            const factor = 2 ** ((s.scrollY + config.scrollRange) / 400 - 2);
 
-            s.paneMatrix.a = s.paneMatrix.d = s.paneMatrix.e = s.paneMatrix.f = 1; 
+            s.paneMatrix.a = s.paneMatrix.d = 1;
+            s.paneMatrix.e = s.paneMatrix.f = 1; 
             s.paneMatrix.scaleSelf(factor, factor, 1, s.ptrX, s.ptrY);
 
             s.pane.style.transform = s.paneMatrix.toString();
-            if (s.scrollY !== prevY) s.frame = requestAnimationFrame(zoomFrom(s, s.scrollY));
+            if (s.scrollY !== prevScrollY) s.frame = requestAnimationFrame(zoomFrom(s, s.scrollY));
             else s.frame = null;
         };
 
