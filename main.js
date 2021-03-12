@@ -208,11 +208,15 @@
         };
 
         const zoomFrom = (s, prevScrollY) => () => {
-            const factor = 2 ** ((s.scrollY + config.scrollRange) / 400 - 2);
+            const factor = 2 ** ((prevScrollY + config.scrollRange) / 400 - 2);
 
-            s.paneMatrix.a = s.paneMatrix.d = 1;
-            s.paneMatrix.e = s.paneMatrix.f = 1; 
-            s.paneMatrix.scaleSelf(factor, factor, 1, s.ptrX, s.ptrY);
+            const f = factor / s.paneMatrix.a;
+            const offsX = s.ptrX - s.paneMatrix.e,
+                offsY = s.ptrY - s.paneMatrix.f;
+
+            s.paneMatrix.a = s.paneMatrix.d = factor;
+            s.paneMatrix.e -= offsX * f - offsX;
+            s.paneMatrix.f -= offsY * f - offsY;
 
             s.pane.style.transform = s.paneMatrix.toString();
             if (s.scrollY !== prevScrollY) s.frame = requestAnimationFrame(zoomFrom(s, s.scrollY));
