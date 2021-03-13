@@ -2,15 +2,14 @@
     const config = {
         placeholder: 'Stuff and things',
         storageKey: 'data',
-        scrollRange: 800
+        sensitivity: 400,
+        scaleRange: [0.25, 4]   
     };
 
     const ready = () => new Promise(resolve => {
         if (document.readyState !== 'loading') return resolve();
         document.addEventListener('DOMContentLoaded', () => resolve());
     });
-
-    const select = document.querySelector.bind(document);
 
     const createEl = (el, attrs = {}, ns = 'http://www.w3.org/1999/xhtml') => {
         el = document.createElementNS(ns, el)
@@ -29,13 +28,27 @@
     const updateStore = () => localStorage.setItem(config.storageKey, JSON.stringify(store))
 
     ready().then(() => {
+        const select = document.querySelector.bind(document);
         const diagram = select('.diagram');
         const pane = select('.pane');
         const menu = {
             box: select('.add-box'),
             line: select('.add-line')
         };
-        
+
+        const [scrollY, minExp, scrollFactor, scrollRange] = (() => {
+            const minExp = Math.log2(config.scaleRange[0]),
+                maxExp = Math.log2(config.scaleRange[1]),
+                maxScroll = (maxExp - minExp) * config.sensitivity;
+
+            return [
+                -minExp * config.sensitivity,
+                minExp,
+                (maxExp - minExp) / maxScroll,
+                [0, maxScroll]
+            ];
+        })();
+
         const withState = makeStateH({
             paneMatrix: new DOMMatrix(pane.style.transform),
             diagram, pane, menu,
@@ -43,12 +56,14 @@
             connectingBoxes: false,         // we're connecting boxes
             frame: null,                    // animating draggable
             ptrX: null, ptrY: null,         // position of the pointer within the diagram
-            scrollY: 0,                     // scroll y delta
             firstBox: null,                 // first selected box when adding lines
             connectingLine: null,           // a new line
             uid: -1,                        // unique id
             store,                          // initial storage state
-            commit: updateStore             // update localStorage 
+            commit: updateStore,            // update localStorage 
+            scrollY,                        // keep track of the zoom amount
+            minExp, scrollFactor,           // precomputed zoom factors
+            scrollRange                     // scroll bounds
         });
 
         const stop = (fn = noop) => e => {
@@ -91,12 +106,13 @@
 
         const set = (pos, x) => pos.baseVal.value = x;
         const shift = (pos, x) => pos.baseVal.value += x;
+        const scale = (x, s) => x / s.paneMatrix.a;
 
         const moveBoxFrom = (s, prevX, prevY) => () => {
             const dragging = s.dragging;
 
-            const diffX = s.ptrX - prevX;
-            const diffY = s.ptrY - prevY;
+            const diffX = scale(s.ptrX - prevX, s);
+            const diffY = scale(s.ptrY - prevY, s);
 
             shift(dragging.x, diffX);
             shift(dragging.y, diffY);
@@ -111,8 +127,8 @@
 
         const moveLineFrom = (s, prevX, prevY) => () => {
             const connectingLine = s.connectingLine;
-            shift(connectingLine.x2, s.ptrX - prevX);
-            shift(connectingLine.y2, s.ptrY - prevY);
+            shift(connectingLine.x2, scale(s.ptrX - prevX, s));
+            shift(connectingLine.y2, scale(s.ptrY - prevY, s));
             s.frame = requestAnimationFrame(moveLineFrom(s, s.ptrX, s.ptrY));
         };
 
@@ -202,21 +218,20 @@
         };
 
         const panFrom = (s, prevX, prevY) => () => {
-            s.paneMatrix.translateSelf(s.ptrX - prevX, s.ptrY - prevY);
+            s.paneMatrix.translateSelf((s.ptrX - prevX) / s.paneMatrix.a, (s.ptrY - prevY) / s.paneMatrix.a);
             s.pane.style.transform = s.paneMatrix.toString();
             s.frame = requestAnimationFrame(panFrom(s, s.ptrX, s.ptrY));
         };
 
         const zoomFrom = (s, prevScrollY) => () => {
-            const factor = 2 ** ((prevScrollY + config.scrollRange) / 400 - 2);
-
-            const f = factor / s.paneMatrix.a;
-            const offsX = s.ptrX - s.paneMatrix.e,
+            const factor = 2 ** (s.scrollFactor * prevScrollY + s.minExp);
+            const d = factor / s.paneMatrix.a;
+            const offsX = s.ptrX - s.paneMatrix.e,  
                 offsY = s.ptrY - s.paneMatrix.f;
 
             s.paneMatrix.a = s.paneMatrix.d = factor;
-            s.paneMatrix.e -= offsX * f - offsX;
-            s.paneMatrix.f -= offsY * f - offsY;
+            s.paneMatrix.e -= offsX * d - offsX;
+            s.paneMatrix.f -= offsY * d - offsY;
 
             s.pane.style.transform = s.paneMatrix.toString();
             if (s.scrollY !== prevScrollY) s.frame = requestAnimationFrame(zoomFrom(s, s.scrollY));
@@ -237,10 +252,7 @@
             s.frame = null;
         };
 
-        const finishDragging = s => {
-            s.dragging = null;
-            clearFrame(s);
-        };
+        const finishDragging = s => (s.dragging = null, clearFrame(s));
 
         const stopDragging = s => {
             s.dragging.parentElement.removeChild(s.dragging);
@@ -277,8 +289,8 @@
             s.connectingLine = addLine(s.pane, 
                 box.x.baseVal.value + boxFrame.offsetWidth / 2,
                 box.y.baseVal.value + boxFrame.offsetHeight / 2,
-                s.ptrX, 
-                s.ptrY
+                scale(s.ptrX - s.paneMatrix.e, s), 
+                scale(s.ptrY - s.paneMatrix.f, s)
             );
 
             s.connectingLine.classList.add('active');
@@ -299,6 +311,7 @@
             const s = e._state;
             const nodes = {};
 
+            // TODO: account for scale, even though the diagram will start out at 1x 
             Object.values(s.store.graph).forEach(item => {
                 if (item.type === 'box') {
                     const box = addBox(s.pane, item.x, item.y, item.text);
@@ -322,11 +335,14 @@
         };
 
         menu.box.addEventListener('click', withState(stop(withStart(withSetP(e => {
-            const box = addBox(e._state.pane, e._state.ptrX, e._state.ptrY)
+            const s = e._state;
+            const box = addBox(s.pane, 
+                scale(e._state.ptrX - s.paneMatrix.e, s), 
+                scale(e._state.ptrY - s.paneMatrix.f, s));
             const boxFrame = box.firstElementChild;
             box.x.baseVal.value -= boxFrame.offsetWidth / 2;
             box.y.baseVal.value -= boxFrame.offsetHeight / 2;
-            startDragging(e._state, box);
+            startDragging(s, box);
         })))));
 
         menu.line.addEventListener('click', withState(stop(withStart(e => {
@@ -359,11 +375,13 @@
         })));
 
         diagram.addEventListener('wheel', withState(withSetP(e => {
-            const s = e._state, srange = config.scrollRange;
+            const s = e._state;
             e.preventDefault();
+            if (s.scrollY === s.scrollRange[0] && e.deltaY > 0 ||
+                s.scrollY === s.scrollRange[1] && e.deltaY < 0) return;
             s.scrollY -= e.deltaY;
-            s.scrollY = s.scrollY < -srange ? -srange : s.scrollY;
-            s.scrollY = s.scrollY > srange ? srange : s.scrollY;
+            s.scrollY = s.scrollY < s.scrollRange[0] ? s.scrollRange[0] : s.scrollY;
+            s.scrollY = s.scrollY > s.scrollRange[1] ? s.scrollRange[1] : s.scrollY;
             if (!s.frame) startZooming(s);
         })));
 
