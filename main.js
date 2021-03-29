@@ -1,4 +1,4 @@
-(function () {
+(() => {
     const config = {
         placeholder: 'Stuff and things',
         storageKey: 'data',
